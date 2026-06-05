@@ -1,0 +1,15 @@
+.idea
+
+.env
+/services/api/.env
+/services/order-service/.env
+/services/product-service/.env
+/services/user-service/.env
+
+package-lock.json
+/services/api/package-lock.json
+/services/order-service/package-lock.json
+/services/product-service/package-lock.json
+/services/user-service/package-lock.json
+
+node_modules

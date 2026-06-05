@@ -1,0 +1,20 @@
+{
+  "name": "shopify-clone-server",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "shared"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --workspaces",
+    "dev": "concurrently \"npm run dev -w services/user-service\" \"npm run dev -w services/product-service\" \"npm run dev -w services/order-service\" \"npm run dev -w services/api\"",
+    "build": "npm run build --workspaces",
+    "seed": "npm run seed -w services/user-service",
+    "codegen": "npm run codegen -w services/api"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}

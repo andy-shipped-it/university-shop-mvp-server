@@ -14,10 +14,9 @@ package-lock.json
 /shared/package-lock.json
 
 
-/services/api/dist
-/services/order-service/dist
-/services/product-service/dist
-/services/user-service/dist
-/shared/dist
+dist/
+**/dist/
+services/**/dist/
+*.map
 
 node_modules

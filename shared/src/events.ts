@@ -1,11 +1,11 @@
-import {createProducer, TOPICS} from "./kafka";
+import {createConsumer, createProducer, TOPICS} from "./kafka";
 
 class KafkaEvent<T> {
     constructor(
         private readonly topic: string,
     ) {
     }
-
+    
     async publish(payload: T): Promise<void> {
         try {
             const producer = await createProducer();
@@ -23,9 +23,25 @@ class KafkaEvent<T> {
         }
     }
 
-    // todo: subscribe()
+    async subscribe(groupId: string, handler: (payload: T) => Promise<void> | void): Promise<void> {
+        try {
+            const consumer = await createConsumer(groupId);
 
-    // todo: adapt all events to using this class
+            await consumer.subscribe({topic: this.topic, fromBeginning: false});
+
+            await consumer.run({
+                eachMessage: async ({message}) => {
+                    if (!message.value) return;
+
+                    const event = JSON.parse(message.value.toString());
+                    await handler(event.payload);
+                }
+            });
+        } catch (e) {
+            console.error(this.topic + ' - Kafka subscribe error', e);
+        }
+    }
+
 }
 
 export const UserCreatedEvent = new KafkaEvent<{
@@ -43,44 +59,36 @@ export const OrderCreatedEvent = new KafkaEvent<{
     status: string;
 }>(TOPICS.ORDER_CREATED)
 
-export interface OrderUpdatedEvent {
-    type: 'order.updated';
-    payload: {
-        id: string;
-        status: string;
-        updatedAt: string;
-    };
-}
+export const OrderUpdatedEvent = new KafkaEvent<{
+    id: string;
+    status: string;
+    updatedAt: string;
+}>(TOPICS.ORDER_UPDATED);
 
-export interface ProductCreatedEvent {
-    type: 'product.created';
-    payload: {
-        id: string;
-        name: string;
-        price: number;
-        categoryId: string;
-        stock: number;
-    };
-}
+export const ProductCreatedEvent = new KafkaEvent<{
+    id: string;
+    name: string;
+    price: number;
+    categoryId: string;
+    stock: number;
+}>(TOPICS.PRODUCT_CREATED);
 
-export interface ProductUpdatedEvent {
-    type: 'product.updated';
-    payload: {
-        id: string;
-        [key: string]: unknown;
-    };
-}
+export const ProductUpdatedEvent = new KafkaEvent<{
+    id: string;
+    [key: string]: unknown;
+}>(TOPICS.PRODUCT_UPDATED);
 
-export interface PaymentProcessedEvent {
-    type: 'payment.processed';
-    payload: {
-        orderId: string;
-        amount: number;
-        provider: string;
-        status: 'success' | 'failed';
-        transactionId?: string;
-    };
-}
+export const ProductDeletedEvent = new KafkaEvent<{
+    id: string;
+}>(TOPICS.PRODUCT_DELETED);
+
+export const PaymentProcessedEvent = new KafkaEvent<{
+    orderId: string;
+    amount: number;
+    provider: string;
+    status: 'success' | 'failed';
+    transactionId?: string;
+}>(TOPICS.PAYMENT_PROCESSED);
 
 export interface EmailNotificationMessage {
     to: string;

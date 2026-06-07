@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
 import {Order} from './models/Order';
-import {createProducer, createConsumer, TOPICS, getKafka, OrderCreatedEvent} from '@shop/shared';
+import {TOPICS, getKafka, OrderCreatedEvent, OrderUpdatedEvent, PaymentProcessedEvent} from '@shop/shared';
 import {publishToQueue, QUEUES} from '@shop/shared';
 
 const app = express();
@@ -103,21 +103,7 @@ app.patch('/orders/:id/status', async (req, res) => {
         const order = await Order.findByIdAndUpdate(req.params.id, {status}, {new: true});
         if (!order) return res.status(404).json({error: 'Order not found'});
 
-        try {
-            const producer = await createProducer();
-            await producer.send({
-                topic: TOPICS.ORDER_UPDATED,
-                messages: [{
-                    value: JSON.stringify({
-                        type: TOPICS.ORDER_UPDATED,
-                        payload: {id: order.id, status, updatedAt: new Date().toISOString()}
-                    })
-                }],
-            });
-            await producer.disconnect();
-        } catch (err) {
-            console.error('[order-service] Kafka error:', err);
-        }
+        await OrderUpdatedEvent.publish({id: order.id, status, updatedAt: new Date().toISOString()});
 
         return res.json(order);
     } catch (e: unknown) {
@@ -141,21 +127,7 @@ app.patch('/orders/:id/payment', async (req, res) => {
         );
         if (!order) return res.status(404).json({error: 'Order not found'});
 
-        try {
-            const producer = await createProducer();
-            await producer.send({
-                topic: TOPICS.PAYMENT_PROCESSED,
-                messages: [{
-                    value: JSON.stringify({
-                        type: TOPICS.PAYMENT_PROCESSED,
-                        payload: {orderId: order.id, amount: order.total, provider, status, transactionId}
-                    })
-                }],
-            });
-            await producer.disconnect();
-        } catch (err) {
-            console.error('[order-service] Kafka error:', err);
-        }
+        await PaymentProcessedEvent.publish({orderId: order.id, amount: order.total, provider, status, transactionId});
 
         return res.json(order);
     } catch (e: unknown) {
@@ -178,14 +150,8 @@ async function startKafkaConsumer() {
         });
         await admin.disconnect();
 
-        const consumer = await createConsumer('order-service-group');
-        await consumer.subscribe({topics: [TOPICS.PAYMENT_PROCESSED], fromBeginning: false});
-        await consumer.run({
-            eachMessage: async ({message}) => {
-                if (!message.value) return;
-                const event = JSON.parse(message.value.toString());
-                console.log('[order-service] Event received:', event.type);
-            },
+        await PaymentProcessedEvent.subscribe('order-service-group', async (payload) => {
+            console.log('[order-service] Event received:', TOPICS.PAYMENT_PROCESSED, payload);
         });
         console.log('[order-service] Kafka consumer started');
     } catch (err) {

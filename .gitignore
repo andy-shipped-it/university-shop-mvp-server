@@ -11,5 +11,13 @@ package-lock.json
 /services/order-service/package-lock.json
 /services/product-service/package-lock.json
 /services/user-service/package-lock.json
+/shared/package-lock.json
+
+
+/services/api/dist
+/services/order-service/dist
+/services/product-service/dist
+/services/user-service/dist
+/shared/dist
 
 node_modules

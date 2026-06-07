@@ -3,8 +3,14 @@ import express from 'express';
 import mongoose from 'mongoose';
 import {Product} from './models/Product';
 import {Category} from './models/Category';
-import {createProducer, createConsumer, TOPICS, getKafka} from '@shop/shared';
-import {publishToQueue, QUEUES} from '@shop/shared';
+import {
+    TOPICS,
+    getKafka,
+    OrderCreatedEvent,
+    ProductCreatedEvent,
+    ProductUpdatedEvent,
+    ProductDeletedEvent
+} from '@shop/shared';
 
 const app = express();
 app.use(express.json());
@@ -130,27 +136,13 @@ app.get('/products/slug/:slug', async (req, res) => {
 app.post('/products', async (req, res) => {
     try {
         const product = await Product.create(req.body);
-        try {
-            const producer = await createProducer();
-            await producer.send({
-                topic: TOPICS.PRODUCT_CREATED,
-                messages: [{
-                    value: JSON.stringify({
-                        type: TOPICS.PRODUCT_CREATED,
-                        payload: {
-                            id: product.id,
-                            name: product.name,
-                            price: product.price,
-                            categoryId: product.categoryId,
-                            stock: product.stock
-                        }
-                    })
-                }],
-            });
-            await producer.disconnect();
-        } catch (err) {
-            console.error('[product-service] Kafka error:', err);
-        }
+        await ProductCreatedEvent.publish({
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            categoryId: product.categoryId.toString(),
+            stock: product.stock
+        });
 
         return res.status(201).json(product);
     } catch (e: unknown) {
@@ -162,21 +154,7 @@ app.put('/products/:id', async (req, res) => {
     try {
         const product = await Product.findByIdAndUpdate(req.params.id, req.body, {new: true}).populate('categoryId');
         if (!product) return res.status(404).json({error: 'Product not found'});
-        try {
-            const producer = await createProducer();
-            await producer.send({
-                topic: TOPICS.PRODUCT_UPDATED,
-                messages: [{
-                    value: JSON.stringify({
-                        type: TOPICS.PRODUCT_UPDATED,
-                        payload: {id: product.id, ...req.body}
-                    })
-                }],
-            });
-            await producer.disconnect();
-        } catch (err) {
-            console.error('[product-service] Kafka error:', err);
-        }
+        await ProductUpdatedEvent.publish({id: product.id, ...req.body});
         return res.json(product);
     } catch (e: unknown) {
         return res.status(500).json({error: e instanceof Error ? e.message : 'Error'});
@@ -186,16 +164,7 @@ app.put('/products/:id', async (req, res) => {
 app.delete('/products/:id', async (req, res) => {
     try {
         await Product.findByIdAndUpdate(req.params.id, {isActive: false});
-        try {
-            const producer = await createProducer();
-            await producer.send({
-                topic: TOPICS.PRODUCT_DELETED,
-                messages: [{value: JSON.stringify({type: TOPICS.PRODUCT_DELETED, payload: {id: req.params.id}})}],
-            });
-            await producer.disconnect();
-        } catch (err) {
-            console.error('[product-service] Kafka error:', err);
-        }
+        await ProductDeletedEvent.publish({id: req.params.id});
         return res.json({message: 'Product deactivated'});
     } catch (e: unknown) {
         return res.status(500).json({error: e instanceof Error ? e.message : 'Error'});
@@ -234,19 +203,11 @@ async function startKafkaConsumer() {
         });
         await admin.disconnect();
 
-        const consumer = await createConsumer('product-service-group');
-        await consumer.subscribe({topics: [TOPICS.ORDER_CREATED], fromBeginning: false});
-        await consumer.run({
-            eachMessage: async ({message}) => {
-                if (!message.value) return;
-                const event = JSON.parse(message.value.toString());
-                if (event.type === TOPICS.ORDER_CREATED) {
-                    for (const item of event.payload.items) {
-                        await Product.findByIdAndUpdate(item.productId, {$inc: {stock: -item.quantity}});
-                    }
-                    console.log('[product-service] Stock updated for order:', event.payload.id);
-                }
-            },
+        await OrderCreatedEvent.subscribe('product-service-group', async (payload) => {
+            for (const item of payload.items) {
+                await Product.findByIdAndUpdate(item.productId, {$inc: {stock: -item.quantity}});
+            }
+            console.log('[product-service] Stock updated for order:', payload.id);
         });
         console.log('[product-service] Kafka consumer started');
     } catch (err) {

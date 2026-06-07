@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
 import {User} from './models/User';
-import {createConsumer, createProducer, getKafka, TOPICS, UserCreatedEvent} from '@shop/shared';
+import {getKafka, TOPICS, UserCreatedEvent, OrderCreatedEvent} from '@shop/shared';
 import {publishToQueue, QUEUES} from '@shop/shared';
 
 const app = express();
@@ -43,7 +43,7 @@ app.post('/users/register', async (req, res) => {
 
         // Publish to Kafka
         await UserCreatedEvent.publish({id: user.id, email: user.email, role: user.role, createdAt: user.createdAt})
-        
+
         // Queue welcome email via RabbitMQ
         try {
             await publishToQueue(QUEUES.EMAIL_NOTIFICATIONS, {
@@ -147,14 +147,8 @@ async function startKafkaConsumer() {
         });
         await admin.disconnect();
 
-        const consumer = await createConsumer('user-service-group');
-        await consumer.subscribe({topics: [TOPICS.ORDER_CREATED], fromBeginning: false});
-        await consumer.run({
-            eachMessage: async ({topic, message}) => {
-                if (!message.value) return;
-                const event = JSON.parse(message.value.toString());
-                console.log(`[user-service] Received event on ${topic}:`, event.type);
-            },
+        await OrderCreatedEvent.subscribe('user-service-group', async (payload) => {
+            console.log(`[user-service] Received event on ${TOPICS.ORDER_CREATED}:`, payload);
         });
         console.log('[user-service] Kafka consumer started');
     } catch (err) {
